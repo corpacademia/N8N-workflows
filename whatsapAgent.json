@@ -1,96 +1,165 @@
 {
+  "name": "WhatsApp Multi-User Assistant",
   "nodes": [
     {
-      "id": "1",
-      "name": "WhatsApp Trigger",
-      "type": "n8n-nodes-base.webhookTrigger",
       "parameters": {
-        "path": "whatsapp-webhook",
-        "responseMode": "responseNode"
-      },
-      "typeVersion": 1,
-      "position": [250, 300]
-    },
-    {
-      "id": "2",
-      "name": "Extract Sender",
-      "type": "n8n-nodes-base.function",
-      "parameters": {
-        "functionCode": "// Extract the sender's phone number and message content\nconst entry = $input.body.entry[0];\nconst changes = entry.changes[0];\nconst value = changes.value;\n\n// Check if this is a message\nif (value.messages && value.messages.length > 0) {\n  const message = value.messages[0];\n  const senderId = message.from;\n  const messageContent = message.text?.body || '';\n  \n  return {\n    json: {\n      senderId,\n      messageContent,\n      timestamp: message.timestamp,\n      messageId: message.id\n    }\n  };\n}\n\n// Not a message we care about\nreturn {\n  json: {\n    senderId: null,\n    messageContent: null\n  }\n};"
-      },
-      "typeVersion": 1,
-      "position": [450, 300]
-    },
-    {
-      "id": "3",
-      "name": "Valid Message?",
-      "type": "n8n-nodes-base.if",
-      "parameters": {
-        "conditions": [
-          {
-            "id": "1",
-            "name": "Boolean",
-            "type": "boolean",
-            "value1": "={{ !!$node[\"Extract Sender\"].json[\"senderId\"] }}",
-            "value2": true
-          }
-        ]
-      },
-      "typeVersion": 1,
-      "position": [650, 300]
-    },
-    {
-      "id": "4",
-      "name": "Get Conversation History",
-      "type": "n8n-nodes-base.mongoDb",
-      "parameters": {
-        "operation": "findOne",
-        "collection": "whatsapp_conversations",
-        "query": "{{ '{\"senderId\": \"' + $node[\"Extract Sender\"].json.senderId + '\"}' }}"
-      },
-      "typeVersion": 1,
-      "position": [850, 300]
-    },
-    {
-      "id": "5",
-      "name": "Initialize or Load History",
-      "type": "n8n-nodes-base.function",
-      "parameters": {
-        "functionCode": "// Get the sender and message info\nconst senderId = $node[\"Extract Sender\"].json.senderId;\nconst messageContent = $node[\"Extract Sender\"].json.messageContent;\n\n// Check if we have an existing conversation\nconst existingConversation = $node[\"Get Conversation History\"].json;\n\n// Initialize or update conversation history\nlet conversationHistory = [];\nif (existingConversation && existingConversation.history) {\n  conversationHistory = existingConversation.history;\n}\n\n// Add the current message to history (limit to last 10 messages for simplicity)\nconversationHistory.push({\n  role: \"user\",\n  content: messageContent\n});\n\n// Keep only last 10 messages\nif (conversationHistory.length > 10) {\n  conversationHistory = conversationHistory.slice(-10);\n}\n\nreturn {\n  json: {\n    senderId,\n    messageContent,\n    conversationHistory,\n    isNewConversation: !existingConversation\n  }\n};"
-      },
-      "typeVersion": 1,
-      "position": [1050, 300]
-    },
-    {
-      "id": "6",
-      "name": "AI Agent",
-      "type": "n8n-nodes-base.openAi",
-      "parameters": {
-        "authentication": "apiKey",
-        "operation": "chatCompletion",
-        "model": "gpt-4-turbo",
-        "messages": "={{ $node[\"Initialize or Load History\"].json.conversationHistory }}",
-        "options": {
-          "temperature": 0.7,
-          "maxTokens": 500
+        "rule": {
+          "interval": [
+            {}
+          ]
         }
       },
+      "id": "df305fa2-99c8-4d07-918e-1b2bc4ac8ea7",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1,
-      "position": [1250, 300]
+      "position": [
+        240,
+        300
+      ]
     },
     {
-      "id": "7",
-      "name": "Update Conversation History",
-      "type": "n8n-nodes-base.mongoDb",
       "parameters": {
-        "operation": "updateOne",
-        "collection": "whatsapp_conversations",
-        "query": "{{ '{\"senderId\": \"' + $node[\"Extract Sender\"].json.senderId + '\"}' }}",
-        "updateFields": {
-          "fields": [
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.body !== undefined}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "4a8d56b4-e2c8-46ea-b0a9-64c84e2d0b5a",
+      "name": "IF",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extract the sender's phone number from the WhatsApp message\nconst inputData = $input.all();\nlet item = inputData[0];\n\n// Make sure we have a message object\nif (!item.json.body || !item.json.body.entry) {\n  return {json: {error: 'Not a valid WhatsApp message'}};\n}\n\n// Parse the WhatsApp message to get sender ID\ntry {\n  const entry = item.json.body.entry[0];\n  const changes = entry.changes[0];\n  const value = changes.value;\n  \n  // Check if this is a message\n  if (value.messages && value.messages.length > 0) {\n    const message = value.messages[0];\n    const senderId = message.from;\n    const messageContent = message.text?.body || '';\n    \n    return {\n      json: {\n        senderId: senderId,\n        messageContent: messageContent,\n        timestamp: message.timestamp,\n        messageId: message.id,\n        originalBody: item.json.body\n      }\n    };\n  }\n} catch (error) {\n  return {json: {error: 'Error parsing WhatsApp message: ' + error.message}};\n}\n\nreturn {json: {error: 'No valid message found'}};"
+      },
+      "id": "6f142e69-cd7a-4e5b-9b6c-3698f3d4c7a1",
+      "name": "Extract Sender",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ \"https://api.yourdb.com/conversations/\" + $node[\"Extract Sender\"].json[\"senderId\"] }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "options": {}
+      },
+      "id": "8a97171a-f5bd-4f83-9e60-54c2e3a2f064",
+      "name": "Get Conversation History",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        900,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "1",
+          "name": "Database Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $node[\"Get Conversation History\"].json.hasOwnProperty('history') }}",
+              "operation": "exists"
+            }
+          ]
+        }
+      },
+      "id": "19ba87a2-c6c4-4f85-b68a-6a8dc2b8e897",
+      "name": "Has History?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Initialize a new conversation history\nconst senderId = $node[\"Extract Sender\"].json.senderId;\nconst messageContent = $node[\"Extract Sender\"].json.messageContent;\n\n// Create a new conversation history with just this message\nconst newHistory = [\n  {\n    role: \"user\",\n    content: messageContent\n  }\n];\n\nreturn {\n  json: {\n    senderId: senderId,\n    messageContent: messageContent,\n    conversationHistory: newHistory,\n    isNewConversation: true\n  }\n};"
+      },
+      "id": "a4f28b7e-d8d0-45ea-b9ac-b257e7a0b3bb",
+      "name": "Initialize New History",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1340,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Update the existing conversation history\nconst senderId = $node[\"Extract Sender\"].json.senderId;\nconst messageContent = $node[\"Extract Sender\"].json.messageContent;\n\n// Get the existing conversation\nconst existingHistory = $node[\"Get Conversation History\"].json.history || [];\n\n// Add the current message to history\nexistingHistory.push({\n  role: \"user\",\n  content: messageContent\n});\n\n// Keep only last 10 messages for simplicity\nconst limitedHistory = existingHistory.length > 10 ? \n  existingHistory.slice(-10) : existingHistory;\n\nreturn {\n  json: {\n    senderId: senderId,\n    messageContent: messageContent,\n    conversationHistory: limitedHistory,\n    isNewConversation: false\n  }\n};"
+      },
+      "id": "dea0b7cd-8b48-4f2c-b5a4-5cc8aff9e0d3",
+      "name": "Update Existing History",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1340,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "chatModel": "gpt-4",
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 1000,
+          "presencePenalty": 0,
+          "frequencyPenalty": 0,
+          "systemMessageContent": "You are a helpful WhatsApp assistant. Be concise in your responses as this is a chat interface.",
+          "messages": "={{ $json.conversationHistory }}"
+        }
+      },
+      "id": "b2ff4a4d-68f8-4d9e-be71-fe2bc5bae97c",
+      "name": "AI Agent",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [
+        1560,
+        300
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "2",
+          "name": "OpenAI Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ \"https://api.yourdb.com/conversations/\" + $json[\"senderId\"] }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
             {
               "name": "history",
-              "value": "={{ $node[\"Initialize or Load History\"].json.conversationHistory.concat([{role: 'assistant', content: $node[\"AI Agent\"].json.choices[0].message.content}]) }}"
+              "value": "={{ $json.conversationHistory.concat([{role: 'assistant', content: $node[\"AI Agent\"].json.choices[0].message.content}]) }}"
             },
             {
               "name": "lastUpdated",
@@ -98,45 +167,91 @@
             }
           ]
         },
-        "options": {
-          "upsert": true
-        }
+        "options": {}
       },
-      "typeVersion": 1,
-      "position": [1450, 300]
+      "id": "d7f68a92-b3bd-446f-be9e-6790b9a5f45a",
+      "name": "Save Conversation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        1780,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "1",
+          "name": "Database Auth"
+        }
+      }
     },
     {
-      "id": "8",
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v17.0/YOUR_PHONE_NUMBER_ID/messages",
+        "authentication": "bearerToken",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "messaging_product",
+              "value": "whatsapp"
+            },
+            {
+              "name": "recipient_type",
+              "value": "individual"
+            },
+            {
+              "name": "to",
+              "value": "={{ $node[\"Extract Sender\"].json.senderId }}"
+            },
+            {
+              "name": "type",
+              "value": "text"
+            },
+            {
+              "name": "text",
+              "parameters": {
+                "parameters": [
+                  {
+                    "name": "body",
+                    "value": "={{ $node[\"AI Agent\"].json.choices[0].message.content }}"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "12b4c7ea-1a06-4ad2-bea7-97f46c845e53",
       "name": "Send WhatsApp Reply",
       "type": "n8n-nodes-base.httpRequest",
-      "parameters": {
-        "url": "https://graph.facebook.com/v17.0/YOUR_PHONE_NUMBER_ID/messages",
-        "method": "POST",
-        "authentication": "bearer",
-        "headers": {
-          "Content-Type": "application/json"
-        },
-        "body": "{\n  \"messaging_product\": \"whatsapp\",\n  \"recipient_type\": \"individual\",\n  \"to\": \"{{ $node[\"Extract Sender\"].json.senderId }}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"body\": \"{{ $node[\"AI Agent\"].json.choices[0].message.content }}\"\n  }\n}"
-      },
-      "typeVersion": 1,
-      "position": [1650, 300]
-    },
-    {
-      "id": "9",
-      "name": "Webhook Response",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "parameters": {
-        "options": {
-          "responseCode": 200,
-          "responseData": "success"
+      "typeVersion": 3,
+      "position": [
+        2000,
+        300
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "3",
+          "name": "WhatsApp API Token"
         }
-      },
-      "typeVersion": 1,
-      "position": [1850, 300]
+      }
     }
   ],
   "connections": {
-    "WhatsApp Trigger": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "IF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF": {
       "main": [
         [
           {
@@ -151,25 +266,7 @@
       "main": [
         [
           {
-            "node": "Valid Message?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Valid Message?": {
-      "main": [
-        [
-          {
             "node": "Get Conversation History",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Webhook Response",
             "type": "main",
             "index": 0
           }
@@ -180,14 +277,43 @@
       "main": [
         [
           {
-            "node": "Initialize or Load History",
+            "node": "Has History?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Initialize or Load History": {
+    "Has History?": {
+      "main": [
+        [
+          {
+            "node": "Update Existing History",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Initialize New History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initialize New History": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Existing History": {
       "main": [
         [
           {
@@ -202,14 +328,14 @@
       "main": [
         [
           {
-            "node": "Update Conversation History",
+            "node": "Save Conversation",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Update Conversation History": {
+    "Save Conversation": {
       "main": [
         [
           {
@@ -219,17 +345,13 @@
           }
         ]
       ]
-    },
-    "Send WhatsApp Reply": {
-      "main": [
-        [
-          {
-            "node": "Webhook Response",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
     }
-  }
+  },
+  "pinData": {},
+  "settings": {},
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2023-05-14T12:00:00.000Z",
+  "versionId": "abcd1234-5678-90ab-cdef-1234567890ab"
 }
